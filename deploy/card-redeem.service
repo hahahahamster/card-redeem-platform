@@ -1,0 +1,17 @@
+[Unit]
+Description=Card Redeem Platform
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/card-redeem/server
+Environment=CARD_HOST=127.0.0.1
+Environment=CARD_PORT=8787
+ExecStart=/usr/bin/python3 /opt/card-redeem/server/app.py
+Restart=always
+RestartSec=3
+User=cardredeem
+Group=cardredeem
+
+[Install]
+WantedBy=multi-user.target

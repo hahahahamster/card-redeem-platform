@@ -1,0 +1,7 @@
+server/data/*.db
+server/data/*.db-*
+server/data/settings.json
+client/node_modules/
+client/dist/
+__pycache__/
+*.log
