@@ -6,6 +6,34 @@
 - 后台：创建商品、手动上货、批量生成卡密、查看库存和卡密状态。
 - 后端：Python 标准库 HTTP 服务 + SQLite，本地数据库文件在 `server/data/app.db`。
 
+## 服务器快速部署
+
+在 Linux 服务器上执行：
+
+```bash
+git clone https://github.com/hahahahamster/card-redeem-platform.git
+cd card-redeem-platform
+sudo bash deploy/install.sh
+```
+
+如果你有域名：
+
+```bash
+sudo DOMAIN=你的域名.com bash deploy/install.sh
+```
+
+部署完成后访问：
+
+```text
+http://服务器IP
+```
+
+后台地址：
+
+```text
+http://服务器IP/admin
+```
+
 ## 目录
 
 ```text
