@@ -182,9 +182,10 @@ def json_response(handler, status, payload):
     handler.send_header("Content-Length", str(len(body)))
     handler.send_header("Access-Control-Allow-Origin", "*")
     handler.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-    handler.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+    handler.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, DELETE, OPTIONS")
     handler.end_headers()
-    handler.wfile.write(body)
+    if handler.command != "HEAD":
+        handler.wfile.write(body)
 
 
 def file_response(handler, file_path):
@@ -196,7 +197,8 @@ def file_response(handler, file_path):
     handler.send_header("Content-Type", content_type)
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
-    handler.wfile.write(body)
+    if handler.command != "HEAD":
+        handler.wfile.write(body)
 
 
 def serve_frontend(handler, path):
@@ -1123,8 +1125,11 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, DELETE, OPTIONS")
         self.end_headers()
+
+    def do_HEAD(self):
+        self.do_GET()
 
     def do_GET(self):
         try:
