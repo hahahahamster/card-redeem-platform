@@ -1,5 +1,7 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
+from email.parser import BytesParser
+from email.policy import default as email_default_policy
 import base64
 import hashlib
 import hmac
@@ -24,6 +26,7 @@ SETTINGS_PATH = os.environ.get("CARD_SETTINGS_PATH", os.path.join(DATA_DIR, "set
 HOST = os.environ.get("CARD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("CARD_PORT", "8787"))
 TOKEN_TTL_SECONDS = 24 * 60 * 60
+MAX_UPLOAD_BYTES = int(os.environ.get("CARD_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 
 
 def now_iso():
@@ -111,6 +114,10 @@ def init_db():
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               product_id INTEGER NOT NULL,
               content TEXT NOT NULL,
+              item_type TEXT NOT NULL DEFAULT 'text',
+              filename TEXT,
+              mime_type TEXT,
+              file_data BLOB,
               status TEXT NOT NULL DEFAULT 'available',
               card_id INTEGER,
               created_at TEXT NOT NULL,
@@ -143,6 +150,18 @@ def init_db():
         }
         if "item_count" not in columns:
             db.execute("ALTER TABLE cards ADD COLUMN item_count INTEGER NOT NULL DEFAULT 1")
+        inventory_columns = {
+            row["name"]
+            for row in db.execute("PRAGMA table_info(inventory_items)").fetchall()
+        }
+        if "item_type" not in inventory_columns:
+            db.execute("ALTER TABLE inventory_items ADD COLUMN item_type TEXT NOT NULL DEFAULT 'text'")
+        if "filename" not in inventory_columns:
+            db.execute("ALTER TABLE inventory_items ADD COLUMN filename TEXT")
+        if "mime_type" not in inventory_columns:
+            db.execute("ALTER TABLE inventory_items ADD COLUMN mime_type TEXT")
+        if "file_data" not in inventory_columns:
+            db.execute("ALTER TABLE inventory_items ADD COLUMN file_data BLOB")
 
 
 def json_response(handler, status, payload):
@@ -207,6 +226,44 @@ def read_json(handler):
         return json.loads(raw)
     except json.JSONDecodeError:
         raise ValueError("请求体不是合法 JSON")
+
+
+def read_multipart_files(handler):
+    content_type = handler.headers.get("Content-Type", "")
+    if "multipart/form-data" not in content_type:
+        raise ValueError("请使用文件上传表单")
+
+    length = int(handler.headers.get("Content-Length", "0") or "0")
+    if length <= 0:
+        raise ValueError("请选择要上传的文件")
+    if length > MAX_UPLOAD_BYTES:
+        raise ValueError(f"上传内容太大，最大允许 {MAX_UPLOAD_BYTES // 1024 // 1024} MB")
+
+    raw = handler.rfile.read(length)
+    message = BytesParser(policy=email_default_policy).parsebytes(
+        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8")
+        + raw
+    )
+
+    files = []
+    for part in message.iter_parts():
+        filename = part.get_filename()
+        if not filename:
+            continue
+        data = part.get_payload(decode=True) or b""
+        if not data:
+            continue
+        files.append(
+            {
+                "filename": os.path.basename(filename),
+                "mime_type": part.get_content_type() or "application/octet-stream",
+                "data": data,
+            }
+        )
+
+    if not files:
+        raise ValueError("没有读取到有效文件")
+    return files
 
 
 def sign_token(payload):
@@ -346,6 +403,9 @@ def get_product_detail(product_id):
             SELECT
               i.id,
               i.content,
+              i.item_type,
+              i.filename,
+              i.mime_type,
               i.status,
               i.card_id,
               i.created_at,
@@ -368,7 +428,10 @@ def get_product_detail(product_id):
               c.created_at,
               c.used_at,
               COUNT(i.id) AS delivered_count,
-              GROUP_CONCAT(i.content, char(10)) AS delivered_content
+              GROUP_CONCAT(
+                CASE WHEN i.item_type = 'file' THEN i.filename ELSE i.content END,
+                char(10)
+              ) AS delivered_content
             FROM cards c
             LEFT JOIN inventory_items i ON i.card_id = c.id
             WHERE c.product_id = ?
@@ -429,7 +492,7 @@ def redeem_one(db, code):
     item_count = max(int(card["item_count"] or 1), 1)
     items = db.execute(
         """
-        SELECT id, content
+        SELECT id, content, item_type, filename, mime_type, file_data
         FROM inventory_items
         WHERE product_id = ? AND status = 'available'
         ORDER BY id ASC
@@ -465,15 +528,25 @@ def redeem_one(db, code):
         (timestamp, item_ids[0], card["id"]),
     )
 
-    contents = [item["content"] for item in items]
+    text_contents = [item["content"] for item in items if item["item_type"] == "text"]
+    files = [
+        {
+            "filename": item["filename"] or item["content"] or f"file-{item['id']}",
+            "mimeType": item["mime_type"] or "application/octet-stream",
+            "base64": base64.b64encode(item["file_data"] or b"").decode("ascii"),
+        }
+        for item in items
+        if item["item_type"] == "file"
+    ]
     return {
         "code": code,
         "status": "success",
         "message": "提取成功",
         "productName": card["product_name"],
         "itemCount": item_count,
-        "contents": contents,
-        "content": "\n".join(contents),
+        "contents": text_contents,
+        "content": "\n".join(text_contents),
+        "files": files,
     }
 
 
@@ -566,6 +639,36 @@ def handle_add_stock(handler, product_id):
         )
 
     json_response(handler, 200, {"ok": True, "count": len(items)})
+
+
+def handle_upload_stock_files(handler, product_id):
+    files = read_multipart_files(handler)
+    with get_db() as db:
+        product = db.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not product:
+            json_response(handler, 404, {"ok": False, "message": "商品不存在"})
+            return
+        db.executemany(
+            """
+            INSERT INTO inventory_items (
+              product_id, content, item_type, filename, mime_type, file_data, status, created_at
+            )
+            VALUES (?, ?, 'file', ?, ?, ?, 'available', ?)
+            """,
+            [
+                (
+                    product_id,
+                    file["filename"],
+                    file["filename"],
+                    file["mime_type"],
+                    file["data"],
+                    now_iso(),
+                )
+                for file in files
+            ],
+        )
+
+    json_response(handler, 200, {"ok": True, "count": len(files)})
 
 
 def handle_generate_cards(handler):
@@ -1036,6 +1139,18 @@ class AppHandler(BaseHTTPRequestHandler):
                 if not require_admin(self):
                     return
                 handle_restore_inventory_item(self, int(parts[3]))
+                return
+
+            if (
+                len(parts) == 5
+                and parts[0] == "api"
+                and parts[1] == "admin"
+                and parts[2] == "products"
+                and parts[4] == "files"
+            ):
+                if not require_admin(self):
+                    return
+                handle_upload_stock_files(self, int(parts[3]))
                 return
 
             if (

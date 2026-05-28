@@ -13,10 +13,13 @@ export function clearToken() {
 }
 
 export async function request(path, options = {}) {
+  const isFormData = options.body instanceof FormData;
   const headers = {
-    "Content-Type": "application/json",
     ...(options.headers || {})
   };
+  if (!isFormData) {
+    headers["Content-Type"] = "application/json";
+  }
 
   const token = getToken();
   if (token) {

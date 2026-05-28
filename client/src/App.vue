@@ -9,7 +9,9 @@ const codes = ref("");
 const redeeming = ref(false);
 const redeemError = ref("");
 const redeemResults = ref([]);
-const successfulResults = computed(() => redeemResults.value.filter((item) => item.content));
+const successfulResults = computed(() =>
+  redeemResults.value.filter((item) => item.content || item.files?.length)
+);
 const copyNotice = ref("");
 let copyNoticeTimer = null;
 
@@ -40,6 +42,8 @@ const stockForm = reactive({
   productId: "",
   items: ""
 });
+const stockFiles = ref([]);
+const stockFileInput = ref(null);
 
 const cardForm = reactive({
   productId: "",
@@ -149,13 +153,46 @@ function downloadText(filename, text) {
   URL.revokeObjectURL(url);
 }
 
+function base64ToBlob(base64, mimeType) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: mimeType || "application/octet-stream" });
+}
+
+function downloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function downloadRedeemFile(file) {
+  downloadBlob(file.filename || "download", base64ToBlob(file.base64, file.mimeType));
+}
+
+function downloadAllRedeemFiles(item) {
+  (item.files || []).forEach((file, index) => {
+    window.setTimeout(() => downloadRedeemFile(file), index * 150);
+  });
+}
+
 function downloadRedeemResult(item) {
   downloadText(`${safeFilename(item.code)}.txt`, item.content || "");
 }
 
 function downloadAllRedeemResults() {
   const text = successfulResults.value
-    .map((item) => `卡密：${item.code}\n商品：${item.productName || "-"}\n\n${item.content}`)
+    .map((item) => {
+      const files = (item.files || []).map((file) => `文件：${file.filename}`).join("\n");
+      return `卡密：${item.code}\n商品：${item.productName || "-"}\n\n${item.content || files}`;
+    })
     .join("\n\n==============================\n\n");
   downloadText(`card-results-${new Date().toISOString().slice(0, 10)}.txt`, text);
 }
@@ -273,6 +310,39 @@ async function addStock() {
   stockForm.items = "";
   await loadAdmin({ clearMessage: false });
   adminMessage.value = `已上架 ${data.count} 条库存`;
+  await openProduct(stockForm.productId);
+}
+
+function onStockFilesChange(event) {
+  stockFiles.value = Array.from(event.target.files || []);
+}
+
+async function uploadStockFiles() {
+  adminMessage.value = "";
+  if (!stockForm.productId) {
+    adminMessage.value = "请先创建并选择商品";
+    return;
+  }
+  if (!stockFiles.value.length) {
+    adminMessage.value = "请选择要上传的文件";
+    return;
+  }
+
+  const formData = new FormData();
+  stockFiles.value.forEach((file) => {
+    formData.append("files", file, file.name);
+  });
+
+  const data = await request(`/api/admin/products/${stockForm.productId}/files`, {
+    method: "POST",
+    body: formData
+  });
+  stockFiles.value = [];
+  if (stockFileInput.value) {
+    stockFileInput.value.value = "";
+  }
+  await loadAdmin({ clearMessage: false });
+  adminMessage.value = `已上传 ${data.count} 个文件库存`;
   await openProduct(stockForm.productId);
 }
 
@@ -509,7 +579,23 @@ onMounted(() => {
             <button type="button" @click="copyText(item.content, '内容已复制')">复制内容</button>
             <button type="button" @click="downloadRedeemResult(item)">下载 TXT</button>
           </div>
+          <div v-if="item.files?.length" class="result-actions file-actions">
+            <button
+              v-for="file in item.files"
+              :key="file.filename"
+              type="button"
+              @click="downloadRedeemFile(file)"
+            >
+              下载 {{ file.filename }}
+            </button>
+            <button v-if="item.files.length > 1" type="button" @click="downloadAllRedeemFiles(item)">
+              下载全部文件
+            </button>
+          </div>
           <pre v-if="item.content">{{ item.content }}</pre>
+          <p v-if="!item.content && item.files?.length" class="file-note">
+            该卡密提取到 {{ item.files.length }} 个文件，请点击上方按钮下载。
+          </p>
         </article>
       </section>
     </section>
@@ -589,6 +675,16 @@ onMounted(() => {
             placeholder="一行一个发货内容，可以是下载链接、账号密码、兑换文本等"
           />
           <button class="primary-button" type="submit">上架库存</button>
+          <div class="upload-box">
+            <label class="field-label">
+              上传文件库存
+              <input ref="stockFileInput" type="file" multiple @change="onStockFilesChange" />
+              <span>支持 JSON、ZIP、图片、文档等任意格式；每个文件会作为一条库存。</span>
+            </label>
+            <button class="secondary-button" type="button" @click="uploadStockFiles">
+              上传选中文件
+            </button>
+          </div>
         </form>
 
         <form class="panel" @submit.prevent="generateCards">
@@ -772,7 +868,7 @@ onMounted(() => {
                   </label>
                   <button type="button" class="mini-button danger" @click="deleteInventoryItem(item)">删除</button>
                 </div>
-                <pre>{{ item.content }}</pre>
+                <pre>{{ item.item_type === "file" ? `文件：${item.filename}` : item.content }}</pre>
               </div>
             </article>
 
@@ -791,7 +887,7 @@ onMounted(() => {
                   </div>
                 </div>
                 <p class="linked-code">兑换卡密：{{ item.card_code || "已删除卡密" }}</p>
-                <pre>{{ item.content }}</pre>
+                <pre>{{ item.item_type === "file" ? `文件：${item.filename}` : item.content }}</pre>
               </div>
             </article>
           </section>

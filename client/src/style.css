@@ -297,6 +297,19 @@ pre {
   margin: 10px 0 12px;
 }
 
+.file-actions button {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .result-item button,
 .result-toolbar button,
 .ghost-link {
@@ -453,6 +466,19 @@ pre {
 
 .panel .secondary-button {
   width: fit-content;
+}
+
+.upload-box {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.upload-box input[type="file"] {
+  min-height: auto;
+  padding: 12px;
 }
 
 .field-label {
