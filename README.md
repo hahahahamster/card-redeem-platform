@@ -13,34 +13,36 @@
 ```bash
 git clone https://github.com/hahahahamster/card-redeem-platform.git
 cd card-redeem-platform
-sudo DOMAIN=redeem.code67.lol bash deploy/install.sh
+sudo DOMAIN=your-domain.com bash deploy/install.sh
 ```
 
 如果你想接收证书过期/续期失败提醒，可以加邮箱：
 
 ```bash
-sudo DOMAIN=redeem.code67.lol EMAIL=你的邮箱@example.com bash deploy/install.sh
+sudo DOMAIN=your-domain.com EMAIL=your-email@example.com bash deploy/install.sh
 ```
 
 如果你暂时只想跑 HTTP，不申请 HTTPS：
 
 ```bash
-sudo DOMAIN=redeem.code67.lol ENABLE_SSL=0 bash deploy/install.sh
+sudo DOMAIN=your-domain.com ENABLE_SSL=0 bash deploy/install.sh
 ```
 
 部署完成后访问：
 
 ```text
-https://redeem.code67.lol
+https://your-domain.com
 ```
 
 后台地址：
 
 ```text
-https://redeem.code67.lol/admin
+https://your-domain.com/admin
 ```
 
 这个部署不需要 Docker。脚本会安装并配置 `nginx`、`systemd` 服务、`certbot` HTTPS 证书。邮箱不是必填，但建议填写，方便接收证书提醒。
+
+请把示例里的 `your-domain.com` 换成你自己的域名；公开仓库不要直接写真实业务域名。
 
 ## 目录
 
@@ -114,19 +116,19 @@ sudo bash deploy/install.sh
 如果有域名并希望自动申请 HTTPS 证书：
 
 ```bash
-sudo DOMAIN=redeem.code67.lol bash deploy/install.sh
+sudo DOMAIN=your-domain.com bash deploy/install.sh
 ```
 
 邮箱可选：
 
 ```bash
-sudo DOMAIN=redeem.code67.lol EMAIL=你的邮箱@example.com bash deploy/install.sh
+sudo DOMAIN=your-domain.com EMAIL=your-email@example.com bash deploy/install.sh
 ```
 
 如果一个证书绑定多个域名，用英文逗号分隔：
 
 ```bash
-sudo DOMAIN=code67.lol,www.code67.lol,redeem.code67.lol bash deploy/install.sh
+sudo DOMAIN=example.com,www.example.com,shop.example.com bash deploy/install.sh
 ```
 
 不需要 Docker。脚本会使用：
@@ -139,7 +141,7 @@ sudo DOMAIN=code67.lol,www.code67.lol,redeem.code67.lol bash deploy/install.sh
 
 Cloudflare DNS 建议：
 
-- `redeem.code67.lol` 的 A 记录指向服务器公网 IP。
+- `your-domain.com` 的 A 记录指向服务器公网 IP。
 - 申请证书前确保服务器开放 80 和 443 端口。
 - 如果 Cloudflare 开启代理后证书申请失败，先把小云朵改成 DNS only，证书成功后再开启代理。
 - Cloudflare SSL/TLS 模式建议使用 `Full` 或 `Full (strict)`，不要用 `Flexible`。
