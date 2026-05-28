@@ -733,11 +733,36 @@ tbody tr.selected {
   display: grid;
   gap: 14px;
   width: min(520px, 100%);
+  max-height: min(760px, calc(100vh - 44px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(184, 195, 222, 0.5) rgba(255, 255, 255, 0.06);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
   padding: 24px;
   border: 1px solid var(--line);
   border-radius: 24px;
   background: #202638;
   box-shadow: var(--shadow);
+}
+
+.settings-modal::-webkit-scrollbar {
+  width: 10px;
+}
+
+.settings-modal::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.settings-modal::-webkit-scrollbar-thumb {
+  border: 2px solid rgba(32, 38, 56, 0.96);
+  border-radius: 999px;
+  background: rgba(184, 195, 222, 0.56);
+}
+
+.settings-modal::-webkit-scrollbar-thumb:hover {
+  background: rgba(220, 229, 255, 0.72);
 }
 
 .modal-head {

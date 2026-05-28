@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { clearToken, getToken, request, setToken } from "./api";
 
 const route = ref(window.location.pathname);
@@ -9,6 +9,7 @@ const codes = ref("");
 const redeeming = ref(false);
 const redeemError = ref("");
 const redeemResults = ref([]);
+const resultListRef = ref(null);
 const successfulResults = computed(() =>
   redeemResults.value.filter((item) => item.content || item.files?.length)
 );
@@ -126,6 +127,10 @@ async function redeem() {
       body: JSON.stringify({ codes: codes.value })
     });
     redeemResults.value = data.results || [];
+    if (redeemResults.value.length) {
+      await nextTick();
+      resultListRef.value?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   } catch (error) {
     redeemError.value = error.message;
   } finally {
@@ -606,7 +611,7 @@ onMounted(() => {
 
       <p v-if="redeemError" class="error-text">{{ redeemError }}</p>
 
-      <section v-if="redeemResults.length" class="result-list">
+      <section v-if="redeemResults.length" ref="resultListRef" class="result-list">
         <div v-if="successfulResults.length" class="result-toolbar">
           <span>已提取 {{ successfulResults.length }} 张卡密</span>
           <button type="button" @click="downloadAllRedeemResults">下载全部 TXT</button>
@@ -1009,6 +1014,7 @@ onMounted(() => {
             <div>
               <h3>系统更新</h3>
               <p>检测 GitHub 仓库是否有新版本，部署环境可直接一键更新。</p>
+              <p class="help-text">更新只替换程序代码并重启服务，不会删除数据库、库存、卡密、已兑换记录和后台配置。</p>
             </div>
 
             <dl v-if="updateStatus" class="version-list">
