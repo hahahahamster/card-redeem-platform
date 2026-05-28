@@ -12,7 +12,10 @@ import random
 import secrets
 import sqlite3
 import string
+import subprocess
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 
 
@@ -22,11 +25,19 @@ CLIENT_DIST_DIR = os.path.join(PROJECT_DIR, "client", "dist")
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.environ.get("CARD_DB_PATH", os.path.join(DATA_DIR, "app.db"))
 SETTINGS_PATH = os.environ.get("CARD_SETTINGS_PATH", os.path.join(DATA_DIR, "settings.json"))
+VERSION_PATH = os.environ.get("CARD_VERSION_PATH", os.path.join(PROJECT_DIR, "VERSION"))
+UPDATE_SCRIPT_PATH = os.environ.get(
+    "CARD_UPDATE_SCRIPT", os.path.join(PROJECT_DIR, "deploy", "update.sh")
+)
 
 HOST = os.environ.get("CARD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("CARD_PORT", "8787"))
 TOKEN_TTL_SECONDS = 24 * 60 * 60
 MAX_UPLOAD_BYTES = int(os.environ.get("CARD_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+UPDATE_REPO_OWNER = os.environ.get("CARD_UPDATE_REPO_OWNER", "hahahahamster")
+UPDATE_REPO_NAME = os.environ.get("CARD_UPDATE_REPO_NAME", "card-redeem-platform")
+UPDATE_BRANCH = os.environ.get("CARD_UPDATE_BRANCH", "main")
+UPDATE_LOG_PATH = os.path.join(DATA_DIR, "update.log")
 
 
 def now_iso():
@@ -332,6 +343,76 @@ def rows_to_dicts(rows):
     return [dict(row) for row in rows]
 
 
+def short_version(version):
+    return version[:7] if version else ""
+
+
+def read_current_version():
+    if os.path.exists(VERSION_PATH):
+        with open(VERSION_PATH, "r", encoding="utf-8") as f:
+            return f.read().strip()
+
+    git_dir = os.path.join(PROJECT_DIR, ".git")
+    if os.path.isdir(git_dir):
+        try:
+            return (
+                subprocess.check_output(
+                    ["git", "-C", PROJECT_DIR, "rev-parse", "HEAD"],
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    timeout=5,
+                )
+                .strip()
+            )
+        except Exception:
+            return ""
+    return ""
+
+
+def get_latest_version():
+    url = (
+        f"https://api.github.com/repos/{UPDATE_REPO_OWNER}/"
+        f"{UPDATE_REPO_NAME}/commits/{UPDATE_BRANCH}"
+    )
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "card-redeem-platform",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=12) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    return data.get("sha", "")
+
+
+def get_update_status():
+    current = read_current_version()
+    latest = ""
+    error = ""
+    try:
+        latest = get_latest_version()
+    except urllib.error.URLError as exc:
+        error = str(exc)
+    except Exception as exc:
+        error = str(exc)
+
+    supported = os.name != "nt" and os.path.exists(UPDATE_SCRIPT_PATH)
+    update_available = bool(current and latest and current != latest)
+    return {
+        "repo": f"{UPDATE_REPO_OWNER}/{UPDATE_REPO_NAME}",
+        "branch": UPDATE_BRANCH,
+        "currentVersion": current,
+        "currentShort": short_version(current),
+        "latestVersion": latest,
+        "latestShort": short_version(latest),
+        "updateAvailable": update_available,
+        "supported": supported,
+        "error": error,
+        "logPath": UPDATE_LOG_PATH,
+    }
+
+
 def get_admin_summary():
     with get_db() as db:
         row = db.execute(
@@ -598,6 +679,69 @@ def handle_change_password(handler):
 
     set_admin_password(new_password)
     json_response(handler, 200, {"ok": True})
+
+
+def handle_update_status(handler):
+    json_response(handler, 200, {"ok": True, "status": get_update_status()})
+
+
+def handle_run_update(handler):
+    status = get_update_status()
+    if not status["supported"]:
+        json_response(
+            handler,
+            400,
+            {
+                "ok": False,
+                "message": "当前环境不支持后台一键更新，请在 Linux 部署环境使用",
+                "status": status,
+            },
+        )
+        return
+
+    if os.path.exists(os.path.join(PROJECT_DIR, ".update.lock")):
+        json_response(handler, 409, {"ok": False, "message": "已有更新任务正在执行"})
+        return
+
+    env = os.environ.copy()
+    env.setdefault("APP_NAME", "card-redeem")
+    env.setdefault("APP_DIR", PROJECT_DIR)
+    env.setdefault("APP_USER", "cardredeem")
+    env.setdefault("CARD_UPDATE_REPO_OWNER", UPDATE_REPO_OWNER)
+    env.setdefault("CARD_UPDATE_REPO_NAME", UPDATE_REPO_NAME)
+    env.setdefault("CARD_UPDATE_BRANCH", UPDATE_BRANCH)
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    log_file = open(UPDATE_LOG_PATH, "ab", buffering=0)
+    try:
+        process = subprocess.Popen(
+            ["bash", UPDATE_SCRIPT_PATH],
+            cwd=PROJECT_DIR,
+            env=env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        log_file.close()
+    except FileNotFoundError:
+        log_file.close()
+        json_response(handler, 400, {"ok": False, "message": "服务器没有安装 bash"})
+        return
+    except Exception as exc:
+        log_file.close()
+        json_response(handler, 500, {"ok": False, "message": str(exc)})
+        return
+
+    json_response(
+        handler,
+        200,
+        {
+            "ok": True,
+            "message": "更新任务已开始，稍后服务会自动重启",
+            "pid": process.pid,
+            "status": status,
+        },
+    )
 
 
 def handle_create_product(handler):
@@ -998,6 +1142,12 @@ class AppHandler(BaseHTTPRequestHandler):
                 json_response(self, 200, {"ok": True, "summary": get_admin_summary()})
                 return
 
+            if path == "/api/admin/update/status":
+                if not require_admin(self):
+                    return
+                handle_update_status(self)
+                return
+
             if path == "/api/admin/products":
                 if not require_admin(self):
                     return
@@ -1096,6 +1246,12 @@ class AppHandler(BaseHTTPRequestHandler):
                 if not require_admin(self):
                     return
                 handle_change_password(self)
+                return
+
+            if path == "/api/admin/update/run":
+                if not require_admin(self):
+                    return
+                handle_run_update(self)
                 return
 
             if path == "/api/admin/inventory/bulk-delete":

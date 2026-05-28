@@ -20,6 +20,9 @@ const password = ref("");
 const adminMessage = ref("");
 const adminLoading = ref(false);
 const showSettings = ref(false);
+const updateStatus = ref(null);
+const updateLoading = ref(false);
+const updateMessage = ref("");
 
 const admin = reactive({
   summary: {
@@ -85,6 +88,11 @@ function syncRoute() {
 function go(path) {
   window.history.pushState({}, "", path);
   syncRoute();
+}
+
+async function openSettings() {
+  showSettings.value = true;
+  await checkUpdate();
 }
 
 function setDefaultProducts() {
@@ -230,6 +238,7 @@ function logout() {
   selectedProductId.value = "";
   selectedInventoryIds.value = [];
   showSettings.value = false;
+  updateStatus.value = null;
 }
 
 async function loadAdmin(options = {}) {
@@ -520,6 +529,44 @@ async function changePassword() {
   adminMessage.value = "后台密码已修改，下次登录请使用新密码";
 }
 
+async function checkUpdate() {
+  updateLoading.value = true;
+  updateMessage.value = "";
+  try {
+    const data = await request("/api/admin/update/status");
+    updateStatus.value = data.status;
+    if (data.status.error) {
+      updateMessage.value = `检测失败：${data.status.error}`;
+    } else if (data.status.updateAvailable) {
+      updateMessage.value = "检测到新版本，可以一键更新。";
+    } else {
+      updateMessage.value = "当前已是最新版本。";
+    }
+  } catch (error) {
+    updateMessage.value = error.message;
+  } finally {
+    updateLoading.value = false;
+  }
+}
+
+async function runUpdate() {
+  const confirmed = window.confirm(
+    "确定开始更新吗？更新时会重新构建前端并重启服务，页面可能短暂断开。"
+  );
+  if (!confirmed) return;
+
+  updateLoading.value = true;
+  updateMessage.value = "";
+  try {
+    const data = await request("/api/admin/update/run", { method: "POST" });
+    updateMessage.value = data.message || "更新任务已开始，稍后服务会自动重启。";
+  } catch (error) {
+    updateMessage.value = error.message;
+  } finally {
+    updateLoading.value = false;
+  }
+}
+
 watch(isAdminPage, (value) => {
   if (value && adminToken.value) {
     loadAdmin();
@@ -627,7 +674,7 @@ onMounted(() => {
         <div class="header-actions">
           <button type="button" class="secondary-button" @click="go('/')">前台页面</button>
           <button type="button" class="secondary-button" @click="refreshAdmin">刷新</button>
-          <button type="button" class="secondary-button" @click="showSettings = true">设置</button>
+          <button type="button" class="secondary-button" @click="openSettings">设置</button>
           <button type="button" class="danger-button" @click="logout">退出</button>
         </div>
       </header>
@@ -957,6 +1004,47 @@ onMounted(() => {
             <input v-model="passwordForm.confirmPassword" type="password" autocomplete="new-password" />
           </label>
           <button class="primary-button" type="submit">保存新密码</button>
+
+          <section class="update-card">
+            <div>
+              <h3>系统更新</h3>
+              <p>检测 GitHub 仓库是否有新版本，部署环境可直接一键更新。</p>
+            </div>
+
+            <dl v-if="updateStatus" class="version-list">
+              <div>
+                <dt>当前版本</dt>
+                <dd>{{ updateStatus.currentShort || "未知" }}</dd>
+              </div>
+              <div>
+                <dt>远程版本</dt>
+                <dd>{{ updateStatus.latestShort || "未知" }}</dd>
+              </div>
+              <div>
+                <dt>仓库</dt>
+                <dd>{{ updateStatus.repo }} / {{ updateStatus.branch }}</dd>
+              </div>
+            </dl>
+
+            <p v-if="updateMessage" class="update-message">{{ updateMessage }}</p>
+
+            <div class="row-actions">
+              <button type="button" class="mini-button" :disabled="updateLoading" @click="checkUpdate">
+                {{ updateLoading ? "检测中..." : "检测更新" }}
+              </button>
+              <button
+                type="button"
+                class="mini-button danger"
+                :disabled="updateLoading || !updateStatus?.supported || !updateStatus?.updateAvailable"
+                @click="runUpdate"
+              >
+                一键更新
+              </button>
+            </div>
+            <p v-if="updateStatus && !updateStatus.supported" class="help-text">
+              当前环境不支持后台更新；Linux 一键部署后的服务器环境会自动支持。
+            </p>
+          </section>
         </form>
       </div>
     </section>

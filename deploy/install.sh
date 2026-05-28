@@ -28,7 +28,7 @@ fi
 
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update
-  apt-get install -y python3 nodejs npm rsync
+  apt-get install -y python3 nodejs npm rsync curl sudo
   if [[ "${INSTALL_NGINX}" == "1" ]]; then
     apt-get install -y nginx
     if [[ "${SHOULD_ENABLE_SSL}" == "1" ]]; then
@@ -36,7 +36,7 @@ if command -v apt-get >/dev/null 2>&1; then
     fi
   fi
 elif command -v dnf >/dev/null 2>&1; then
-  dnf install -y python3 nodejs npm rsync
+  dnf install -y python3 nodejs npm rsync curl sudo
   if [[ "${INSTALL_NGINX}" == "1" ]]; then
     dnf install -y nginx
     if [[ "${SHOULD_ENABLE_SSL}" == "1" ]]; then
@@ -44,7 +44,7 @@ elif command -v dnf >/dev/null 2>&1; then
     fi
   fi
 elif command -v yum >/dev/null 2>&1; then
-  yum install -y python3 nodejs npm rsync
+  yum install -y python3 nodejs npm rsync curl sudo
   if [[ "${INSTALL_NGINX}" == "1" ]]; then
     yum install -y nginx
     if [[ "${SHOULD_ENABLE_SSL}" == "1" ]]; then
@@ -81,6 +81,12 @@ npm run build
 echo "==> 初始化数据目录权限"
 mkdir -p "${APP_DIR}/server/data"
 chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
+if command -v git >/dev/null 2>&1 && [[ -d "${PROJECT_DIR}/.git" ]]; then
+  git -C "${PROJECT_DIR}" rev-parse HEAD > "${APP_DIR}/VERSION" || true
+elif [[ -f "${PROJECT_DIR}/VERSION" ]]; then
+  cp "${PROJECT_DIR}/VERSION" "${APP_DIR}/VERSION"
+fi
+chown "${APP_USER}:${APP_USER}" "${APP_DIR}/VERSION" 2>/dev/null || true
 
 echo "==> 安装 systemd 服务"
 sed "s|/opt/card-redeem|${APP_DIR}|g; s|CARD_PORT=8787|CARD_PORT=${APP_PORT}|g; s|User=cardredeem|User=${APP_USER}|g; s|Group=cardredeem|Group=${APP_USER}|g" \
@@ -88,6 +94,13 @@ sed "s|/opt/card-redeem|${APP_DIR}|g; s|CARD_PORT=8787|CARD_PORT=${APP_PORT}|g; 
 systemctl daemon-reload
 systemctl enable ${APP_NAME}
 systemctl restart ${APP_NAME}
+
+echo "==> 配置后台一键更新权限"
+SYSTEMCTL_PATH="$(command -v systemctl)"
+cat > "/etc/sudoers.d/${APP_NAME}-update" <<EOF
+${APP_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL_PATH} restart ${APP_NAME}
+EOF
+chmod 440 "/etc/sudoers.d/${APP_NAME}-update"
 
 if [[ "${INSTALL_NGINX}" == "1" ]]; then
   echo "==> 配置 Nginx 反向代理"
