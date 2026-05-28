@@ -13,26 +13,28 @@
 ```bash
 git clone https://github.com/hahahahamster/card-redeem-platform.git
 cd card-redeem-platform
-sudo bash deploy/install.sh
+sudo DOMAIN=redeem.code67.lol EMAIL=你的邮箱@example.com bash deploy/install.sh
 ```
 
-如果你有域名：
+如果你暂时不用 HTTPS，也可以只跑 HTTP：
 
 ```bash
-sudo DOMAIN=你的域名.com bash deploy/install.sh
+sudo DOMAIN=redeem.code67.lol bash deploy/install.sh
 ```
 
 部署完成后访问：
 
 ```text
-http://服务器IP
+https://redeem.code67.lol
 ```
 
 后台地址：
 
 ```text
-http://服务器IP/admin
+https://redeem.code67.lol/admin
 ```
+
+这个部署不需要 Docker。脚本会安装并配置 `nginx`、`systemd` 服务、`certbot` HTTPS 证书。
 
 ## 目录
 
@@ -103,11 +105,32 @@ sudo bash deploy/install.sh
 - 创建并启动 `card-redeem` systemd 服务
 - 配置 Nginx 反代到 `127.0.0.1:8787`
 
-如果有域名：
+如果有域名并希望自动申请 HTTPS 证书：
 
 ```bash
-sudo DOMAIN=你的域名.com bash deploy/install.sh
+sudo DOMAIN=redeem.code67.lol EMAIL=你的邮箱@example.com bash deploy/install.sh
 ```
+
+如果一个证书绑定多个域名，用英文逗号分隔：
+
+```bash
+sudo DOMAIN=code67.lol,www.code67.lol,redeem.code67.lol EMAIL=你的邮箱@example.com bash deploy/install.sh
+```
+
+不需要 Docker。脚本会使用：
+
+- `python3` 运行后端
+- `SQLite` 保存数据
+- `systemd` 保持服务常驻
+- `nginx` 反向代理
+- `certbot` 自动申请和续期 HTTPS 证书
+
+Cloudflare DNS 建议：
+
+- `redeem.code67.lol` 的 A 记录指向服务器公网 IP。
+- 申请证书前确保服务器开放 80 和 443 端口。
+- 如果 Cloudflare 开启代理后证书申请失败，先把小云朵改成 DNS only，证书成功后再开启代理。
+- Cloudflare SSL/TLS 模式建议使用 `Full` 或 `Full (strict)`，不要用 `Flexible`。
 
 常用命令：
 
