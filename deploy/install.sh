@@ -21,7 +21,7 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 echo "==> 安装系统依赖"
 SHOULD_ENABLE_SSL="0"
 if [[ "${INSTALL_NGINX}" == "1" && -n "${DOMAIN}" ]]; then
-  if [[ "${ENABLE_SSL}" == "1" || ( "${ENABLE_SSL}" == "auto" && -n "${EMAIL}" ) ]]; then
+  if [[ "${ENABLE_SSL}" != "0" ]]; then
     SHOULD_ENABLE_SSL="1"
   fi
 fi
@@ -113,16 +113,23 @@ if [[ "${INSTALL_NGINX}" == "1" ]]; then
       fi
     done
 
+    CERTBOT_EMAIL_ARGS=()
+    if [[ -n "${EMAIL}" ]]; then
+      CERTBOT_EMAIL_ARGS=("--email" "${EMAIL}")
+    else
+      CERTBOT_EMAIL_ARGS=("--register-unsafely-without-email")
+    fi
+
     certbot --nginx \
       "${CERTBOT_DOMAIN_ARGS[@]}" \
       --non-interactive \
       --agree-tos \
-      --email "${EMAIL}" \
+      "${CERTBOT_EMAIL_ARGS[@]}" \
       --redirect
 
     systemctl reload nginx || systemctl restart nginx
   elif [[ "${INSTALL_NGINX}" == "1" && -n "${DOMAIN}" ]]; then
-    echo "==> 已配置域名 HTTP；如需自动 HTTPS，请用 EMAIL=你的邮箱 重新运行部署脚本。"
+    echo "==> 已按要求跳过 HTTPS，只配置 HTTP。"
   fi
 fi
 
